@@ -1,4 +1,1 @@
-given a wave file test.wav, run:
-python3 pitch_stft.py test.wav pitched.wav --factor 1.2 --nfft 1024
---------------------------change the factor to pitch up/down----------------
-The pitched audio is saved as pitched.wav
+[https://docs.google.com/document/d/1D6wKk_ymTV2tOYXHAotqeReuScfODAr_lYhoVqwXDnY/edit?tab=t.0](url)
