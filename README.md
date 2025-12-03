@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Audio receiver + visualizer
 
 This small app receives WAV blobs over MQTT (topic `audio/sample`), saves them as `received.wav`, and provides a small web UI to play the original and pitch-shifted audio and inspect spectrograms.
@@ -26,3 +27,6 @@ RPi side
 Notes
 - The Flask server generates pitched audio on demand using `stft_pitch_shift` from `pitch_stft.py` and `read_wav_mono` / `write_wav_mono` from `basic_io.py`.
 - For spectrogram endpoints the server downsamples the spectrogram to keep JSON sizes reasonable.
+=======
+https://docs.google.com/document/d/1D6wKk_ymTV2tOYXHAotqeReuScfODAr_lYhoVqwXDnY/edit?usp=sharing
+>>>>>>> 0e0b3c4662d02d471d5c6180416186081849ba3e

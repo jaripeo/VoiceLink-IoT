@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import io
 import numpy as np
 import matplotlib.pyplot as plt
@@ -51,6 +52,8 @@ if __name__ == "__main__":
     with open("waveforms_debug.png", "wb") as f:
         f.write(buf.getvalue())
     print("Wrote waveforms_debug.png")
+=======
+>>>>>>> 0e0b3c4662d02d471d5c6180416186081849ba3e
 # plot_waveforms.py
 import numpy as np
 import matplotlib.pyplot as plt
