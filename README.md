@@ -22,7 +22,7 @@ python subscriber_server.py
 Then open http://localhost:5000 in your browser.
 
 RPi side
-- Use your existing `auto_publisher.py` on the Pi. It publishes raw WAV bytes to the MQTT broker and topic `audio/sample`.
+- Use your existing `auto_publisher.py` on the Pi. It publishes raw WAV bytes to the MQTT broker and topic.
 
 Notes
 - The Flask server generates pitched audio on demand using `stft_pitch_shift` from `pitch_stft.py` and `read_wav_mono` / `write_wav_mono` from `basic_io.py`.
