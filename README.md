@@ -1,7 +1,7 @@
 <<<<<<< HEAD
 # Audio receiver + visualizer
 
-This small app receives WAV blobs over MQTT (topic `audio/sample`), saves them as `received.wav`, and provides a small web UI to play the original and pitch-shifted audio and inspect spectrograms.
+This small app receives WAV blobs over MQTT, saves them as `received.wav`, and provides a small web UI to play the original and pitch-shifted audio and inspect spectrograms.
 
 Files added in this folder:
 
