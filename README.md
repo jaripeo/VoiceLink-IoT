@@ -1,32 +1,33 @@
-<<<<<<< HEAD
 # Audio receiver + visualizer
 
-This small app receives WAV blobs over MQTT (topic `audio/sample`), saves them as `received.wav`, and provides a small web UI to play the original and pitch-shifted audio and inspect spectrograms.
+This app receives WAV blobs over MQTT (topic `audio/sample`), saves them as `received.wav`, and serves a web UI to play original and pitch-shifted audio, plus spectrograms and waveform comparisons.
 
-Files added in this folder:
+## Team members
+- Dave Rodriguez
+- Minjun Kim 
 
-- `subscriber_server.py` — Flask app + MQTT subscriber. Serves the frontend and provides API endpoints.
-- `static/index.html` — frontend UI using WaveSurfer.js and Plotly.
-- `requirements.txt` — Python dependencies (use conda recommended for numpy/scipy compatibility).
+## Files
+- `subscriber_server.py` — Flask app + MQTT subscriber; serves API + UI.
+- `auto_pub.py` — record and publish .wav file from rpi to broker.
+- `static/index.html` — frontend UI using Plotly for spectrograms and audio players.
+- `basic_io.py` — WAV I/O utilities (normalize to/from float).
+- `pitch_stft.py` — Hilbert and STFT pitch-shift implementations.
+- `plot_waveforms.py` — renders waveform PNGs for comparison view.
+- `requirements.txt` — Python dependencies.
 
-Quick start (recommended: conda)
-
-```powershell
-conda create -n audio_app python=3.11
-conda activate audio_app
-conda install -c conda-forge numpy=1.24.4 scipy=1.12.0
-pip install -r requirements.txt
-python subscriber_server.py
-```
+## How to run (server + UI)
+Run these commands on terminal <br>
+- pip install -r requirements.txt <br>
+- run "python subscriber_server.py" on laptop (broker IP should be laptop's IP Address on line 34) <br>
+- run "python auto_pub.py" on RPI (broker IP should be laptop's IP Address on line 29) <br>
 
 Then open http://localhost:5000 in your browser.
 
-RPi side
-- Use your existing `auto_publisher.py` on the Pi. It publishes raw WAV bytes to the MQTT broker and topic `audio/sample`.
+The user should see the frontend display to begin recording. 
 
-Notes
-- The Flask server generates pitched audio on demand using `stft_pitch_shift` from `pitch_stft.py` and `read_wav_mono` / `write_wav_mono` from `basic_io.py`.
-- For spectrogram endpoints the server downsamples the spectrogram to keep JSON sizes reasonable.
-=======
-https://docs.google.com/document/d/1D6wKk_ymTV2tOYXHAotqeReuScfODAr_lYhoVqwXDnY/edit?usp=sharing
->>>>>>> 0e0b3c4662d02d471d5c6180416186081849ba3e
+## External libraries
+- Flask, flask-cors
+- paho-mqtt
+- numpy, scipy (signal)
+- matplotlib
+- plotly (frontend)

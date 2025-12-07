@@ -1,11 +1,10 @@
-<<<<<<< HEAD
 import io
 import numpy as np
 import matplotlib.pyplot as plt
 from basic_io import read_wav_mono
 
 
-def plot_waveforms_to_buffer(original_path, pitched_path, duration=0.1):
+def plot_waveforms_to_buffer(original_path, pitched_path, duration=0.2):
     """Render original and pitched waveforms (first `duration` seconds) to a PNG buffer.
 
     Returns: BytesIO with PNG image (seeked to 0).
@@ -52,8 +51,12 @@ if __name__ == "__main__":
     with open("waveforms_debug.png", "wb") as f:
         f.write(buf.getvalue())
     print("Wrote waveforms_debug.png")
-=======
->>>>>>> 0e0b3c4662d02d471d5c6180416186081849ba3e
+
+if __name__ == "__main__":
+    # Change these to your filenames
+    plot_waveforms("test.wav", "pitched.wav")
+
+
 # plot_waveforms.py
 import numpy as np
 import matplotlib.pyplot as plt

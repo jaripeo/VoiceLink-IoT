@@ -4,16 +4,137 @@
 <head>
     <meta charset="utf-8" />
     <title>Audio Receiver & Visualizer</title>
-    <script src="https://unpkg.com/wavesurfer.js"></script>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
+        :root {
+            --bg: #f6f8fa;
+            --card: #ffffff;
+            --muted: #6b7280;
+            --accent: #2563eb;
+            --accent-2: #fb923c;
+            --success: #059669;
+            --danger: #dc2626;
+            --radius: 10px;
+            --shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+        }
+
+        html,
         body {
-            font-family: Arial, sans-serif;
+            height: 100%;
+        }
+
+        body {
+            font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
             margin: 16px;
+            background: linear-gradient(180deg, #f8fafc, #eef2ff);
+            color: #0f172a;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        h2 {
+            margin-bottom: 12px;
+            font-weight: 600;
+            color: #0f172a
         }
 
         .panel {
-            margin-bottom: 20px;
+            background: var(--card);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 14px 16px;
+            margin-bottom: 18px;
+            border: 1px solid rgba(15, 23, 42, 0.04);
+        }
+
+        .panel h3 {
+            margin-top: 0;
+            margin-bottom: 8px;
+            font-size: 16px
+        }
+
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-right: 8px;
+        }
+
+        button.secondary {
+            background: transparent;
+            color: var(--accent);
+            border: 1px solid rgba(37, 99, 235, 0.12)
+        }
+
+        button.danger {
+            background: var(--danger)
+        }
+
+        button.algo-btn {
+            background: transparent;
+            color: var(--muted);
+            border: 1px solid #d1d5db;
+            padding: 6px 10px;
+            font-size: 13px;
+        }
+
+        button.algo-btn.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed
+        }
+
+        input[type=range] {
+            vertical-align: middle;
+            margin: 0 8px;
+            width: 260px
+        }
+
+        .row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap
+        }
+
+        audio {
+            width: 100%;
+            border-radius: 8px;
+            background: linear-gradient(90deg, #fff, #fbfbff);
+            padding: 6px
+        }
+
+        /* spectrogram responsive */
+        #spectrogram_orig,
+        #spectrogram_hilbert,
+        #spectrogram_stft {
+            width: 100%;
+            height: 300px
+        }
+
+        @media (max-width:900px) {
+            input[type=range] {
+                width: 160px
+            }
+
+            #spectrogram_orig,
+            #spectrogram_hilbert,
+            #spectrogram_stft {
+                height: 240px
+            }
         }
     </style>
 </head>
@@ -23,11 +144,11 @@
 
     <div class="panel">
         <h3>Original (received)</h3>
-        <div id="waveform-orig"></div>
-        <div>
-            <button id="playOrig" disabled>Play/Pause</button>
-            <button id="reloadOrig">Reload Original</button>
+        <audio id="audioOrig" controls style="width:100%"></audio>
+        <div style="margin-top:8px">
+            <button id="reloadOrig">Import most recent WAV file</button>
             <button id="recordRemote">Record on Pi</button>
+            <span id="recordStatus" style="margin-left:12px;color:#007700;font-weight:bold"></span>
         </div>
     </div>
 
@@ -38,117 +159,186 @@
                 id="fval">1.00</span>
             <button id="apply">Apply</button>
         </div>
-        <div>
-            <button id="playPit" disabled>Play/Pause</button>
+        <div style="margin-top:8px">
+            <label style="margin-right:8px">Algorithm:</label>
+            <button id="btn-hilbert" class="algo-btn active" data-algo="hilbert">Hilbert</button>
+            <button id="btn-stft" class="algo-btn" data-algo="stft">STFT</button>
         </div>
-        <div id="waveform-pitched"></div>
+        <div style="margin-top:8px">
+            <audio id="audioPit" controls style="width:100%"></audio>
+        </div>
     </div>
 
     <div class="panel">
-        <h3>Spectrogram (Plotly)</h3>
-        <div>
-            <button id="specOrig">Original</button>
-            <button id="specPitched">Pitched</button>
-        </div>
-        <div id="spectrogram" style="width:900px;height:400px;"></div>
+        <h3>Spectrograms (Original / Hilbert / STFT)</h3>
+        <div id="spectrogram_orig" style="width:900px;height:300px;"></div>
+        <div id="spectrogram_hilbert" style="width:900px;height:300px;margin-top:12px;"></div>
+        <div id="spectrogram_stft" style="width:900px;height:300px;margin-top:12px;"></div>
     </div>
 
     <div class="panel">
         <h3>Waveform Comparison</h3>
-        <div>
-            <button id="reloadWaveforms">Reload Waveforms</button>
+        <div style="margin-bottom:12px">
+            <label style="margin-right:8px">Duration (seconds):</label>
+            <input id="waveform-duration" type="number" min="0.01" max="1" step="0.01" value="1.0"
+                style="width:80px;padding:4px;border:1px solid #ccc;border-radius:4px">
+            <button id="btn-update-waveforms" style="margin-left:8px">Update Waveforms</button>
         </div>
-        <div>
-            <img id="waveforms_img" src="/visuals/waveforms.png?rand=0" alt="Waveforms"
-                style="max-width:100%;height:auto;border:1px solid #ccc;" />
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:300px">
+                <h4 style="margin:0 0 8px 0;font-size:13px;color:#666">Original</h4>
+                <img id="waveform-orig" src="" alt="Original waveform"
+                    style="width:100%;border:1px solid #ddd;border-radius:4px;background:#f9fafb">
+            </div>
+            <div style="flex:1;min-width:300px">
+                <h4 style="margin:0 0 8px 0;font-size:13px;color:#666">Pitched (Hilbert)</h4>
+                <img id="waveform-hilbert" src="" alt="Hilbert pitched waveform"
+                    style="width:100%;border:1px solid #ddd;border-radius:4px;background:#f9fafb">
+            </div>
+            <div style="flex:1;min-width:300px">
+                <h4 style="margin:0 0 8px 0;font-size:13px;color:#666">Pitched (STFT)</h4>
+                <img id="waveform-stft" src="" alt="STFT pitched waveform"
+                    style="width:100%;border:1px solid #ddd;border-radius:4px;background:#f9fafb">
+            </div>
         </div>
     </div>
 
     <script>
-        // Wavesurfer instances
-        const wsOrig = WaveSurfer.create({ container: '#waveform-orig', waveColor: '#7fbfff', progressColor: '#0077cc', height: 120 });
-        const wsPit = WaveSurfer.create({ container: '#waveform-pitched', waveColor: '#ffb37f', progressColor: '#ff6600', height: 120 });
+        // Audio players (native HTML5)
+        const audioOrig = document.getElementById('audioOrig');
+        const audioPit = document.getElementById('audioPit');
 
         function loadOriginal() {
-            document.getElementById('playOrig').disabled = true;
-            wsOrig.load('/audio/original');
+            // set src to the server endpoint (cache-bust)
+            audioOrig.src = '/audio/original?rand=' + Date.now();
+            audioOrig.load();
         }
 
         document.getElementById('reloadOrig').addEventListener('click', loadOriginal);
 
         document.getElementById('recordRemote').addEventListener('click', async function () {
             const btn = this;
+            const status = document.getElementById('recordStatus');
             btn.disabled = true;
+            status.textContent = '';
             btn.textContent = 'Requesting...';
             try {
                 const res = await fetch('/control/record', { method: 'POST' });
                 if (!res.ok) {
-                    alert('Failed to request remote recording');
+                    const txt = await res.text();
+                    status.style.color = '#aa0000';
+                    status.textContent = 'Request failed';
+                    alert('Failed to request remote recording: ' + txt);
                 } else {
-                    alert('Recording requested on Pi — wait a few seconds then click Reload Original');
+                    const data = await res.json();
+                    const secs = data.expected_seconds || 5;
+                    status.style.color = '#007700';
+                    // Show countdown
+                    let remaining = secs;
+                    status.textContent = `Recording... ${remaining}s`;
+                    btn.textContent = 'Recording...';
+                    // countdown interval
+                    const iv = setInterval(() => {
+                        remaining -= 1;
+                        if (remaining > 0) {
+                            status.textContent = `Recording... ${remaining}s`;
+                        } else {
+                            clearInterval(iv);
+                            status.textContent = 'Processing...';
+                            btn.textContent = 'Record on Pi';
+                            btn.disabled = false;
+                            // After expected duration, try to reload the original audio until it exists
+                            const start = Date.now();
+                            const timeoutMs = 15000; // give up after 15s
+                            (async function pollForOriginal() {
+                                try {
+                                    const r = await fetch('/audio/original', { method: 'HEAD' });
+                                    if (r.ok) {
+                                        status.textContent = 'Recording complete';
+                                        // reload original player
+                                        loadOriginal();
+                                        return;
+                                    }
+                                } catch (e) {
+                                    // ignore network errors and retry
+                                }
+                                if (Date.now() - start < timeoutMs) {
+                                    setTimeout(pollForOriginal, 800);
+                                } else {
+                                    status.style.color = '#aa0000';
+                                    status.textContent = 'Recording may be delayed; try Reload Original';
+                                }
+                            })();
+                        }
+                    }, 1000);
                 }
             } catch (e) {
-                alert('Error contacting server');
+                status.style.color = '#aa0000';
+                status.textContent = 'Error contacting server';
             }
-            btn.disabled = false;
-            btn.textContent = 'Record on Pi';
-        });
-
-        // enable play button when original is ready
-        wsOrig.on('ready', function () {
-            document.getElementById('playOrig').disabled = false;
-        });
-
-        document.getElementById('playOrig').addEventListener('click', function () {
-            wsOrig.playPause();
+            if (btn.disabled) {
+                // ensure button will be re-enabled if request failed synchronously
+                btn.disabled = false;
+                btn.textContent = 'Record on Pi';
+            }
         });
 
         // pitch controls
         const factorInput = document.getElementById('factor');
         const fval = document.getElementById('fval');
+        let selectedAlgorithm = 'hilbert';  // default algorithm
+
         factorInput.addEventListener('input', () => { fval.textContent = parseFloat(factorInput.value).toFixed(2); });
+
+        // Algorithm selector buttons
+        document.querySelectorAll('.algo-btn').forEach(btn => {
+            btn.addEventListener('click', function () {
+                document.querySelectorAll('.algo-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                selectedAlgorithm = this.dataset.algo;
+            });
+        });
 
         async function applyPitch() {
             const f = factorInput.value;
-            const url = '/audio/pitched?factor=' + encodeURIComponent(f);
-            // fetch blob and load into wavesurfer pitched
-            document.getElementById('playPit').disabled = true;
+            const url = '/audio/pitched?factor=' + encodeURIComponent(f) + '&algorithm=' + selectedAlgorithm;
+            // fetch blob and load into audio pitched element
+            audioPit.src = '';
             const res = await fetch(url);
             if (!res.ok) { alert('No audio received yet'); return; }
             const blob = await res.blob();
             const objectUrl = URL.createObjectURL(blob);
-            wsPit.load(objectUrl);
-            // update spectrogram for pitched automatically if visible
-            drawSpectrogram('pitched', f);
+            audioPit.src = objectUrl;
+            audioPit.load();
+            // update spectrograms automatically
+            drawAllSpectrograms(f);
         }
-
-        // enable play button when pitched audio is ready
-        wsPit.on('ready', function () {
-            document.getElementById('playPit').disabled = false;
-        });
-
-        document.getElementById('playPit').addEventListener('click', function () {
-            wsPit.playPause();
-        });
 
         document.getElementById('apply').addEventListener('click', applyPitch);
 
-        // spectrogram plotting
-        async function fetchSpectrogram(which, factor = 1.0) {
+        // spectrogram plotting (original + pitched hilbert + pitched stft)
+        async function fetchSpectrogram(which, factor = 1.0, algorithm = null) {
             let url = '/api/spectrogram?which=' + which + '&nperseg=1024&max_freq=400&max_time=400';
-            if (which === 'pitched') url += '&factor=' + encodeURIComponent(factor);
+            if (which !== 'original') {
+                url += '&factor=' + encodeURIComponent(factor);
+                if (algorithm) url += '&algorithm=' + encodeURIComponent(algorithm);
+            }
             const res = await fetch(url);
-            if (!res.ok) { alert('No audio yet'); return null; }
+            if (!res.ok) { return null; }
             return res.json();
         }
 
-        async function drawSpectrogram(which, factor = 1.0) {
-            const data = await fetchSpectrogram(which, factor);
-            if (!data) return;
+        async function drawSpectrogramTo(divId, which, title, factor = 1.0, algorithm = null) {
+            const data = await fetchSpectrogram(which, factor, algorithm);
+            if (!data) {
+                // clear div
+                Plotly.purge(divId);
+                document.getElementById(divId).innerHTML = '<div style="color:#888">No audio yet</div>';
+                return;
+            }
             const S = data.S; // 2D array freq x time
             const f = data.f;
             const t = data.t;
-
             const trace = {
                 z: S,
                 x: t,
@@ -156,28 +346,81 @@
                 type: 'heatmap',
                 colorscale: 'Viridis'
             };
-            const layout = { title: 'Spectrogram - ' + which, xaxis: { title: 'Time (s)' }, yaxis: { title: 'Frequency (Hz)' } };
-            Plotly.newPlot('spectrogram', [trace], layout, { responsive: true });
+            const layout = { title: title, xaxis: { title: 'Time (s)' }, yaxis: { title: 'Frequency (Hz)' }, margin: { t: 30 } };
+            Plotly.newPlot(divId, [trace], layout, { responsive: true });
         }
 
-        document.getElementById('specOrig').addEventListener('click', () => drawSpectrogram('original'));
-        document.getElementById('specPitched').addEventListener('click', () => drawSpectrogram('pitched', factorInput.value));
+        async function drawAllSpectrograms(factor = 1.0) {
+            drawSpectrogramTo('spectrogram_orig', 'original', 'Spectrogram - Original');
+            drawSpectrogramTo('spectrogram_hilbert', 'pitched-hilbert', 'Spectrogram - Pitched (Hilbert)', factor, 'hilbert');
+            drawSpectrogramTo('spectrogram_stft', 'pitched-stft', 'Spectrogram - Pitched (STFT)', factor, 'stft');
+        }
 
         // initial load
         loadOriginal();
+        drawAllSpectrograms(1.0);
 
-        // Waveform image updater
-        async function updateWaveforms(factor = 1.0, duration = 0.1) {
-            const img = document.getElementById('waveforms_img');
-            // cache bust
-            img.src = '/visuals/waveforms.png?factor=' + encodeURIComponent(factor) + '&duration=' + encodeURIComponent(duration) + '&rand=' + Date.now();
+        // update spectrograms when pitched audio is applied
+        document.getElementById('apply').addEventListener('click', () => drawAllSpectrograms(factorInput.value));
+
+        // Waveform comparison
+        async function updateWaveforms() {
+            const factor = parseFloat(document.getElementById('factor').value) || 1.0;
+            const duration = parseFloat(document.getElementById('waveform-duration').value) || 0.1;
+            const url = '/visuals/waveforms-all?factor=' + encodeURIComponent(factor) + '&duration=' + encodeURIComponent(duration) + '&rand=' + Date.now();
+
+            console.log('Fetching waveforms:', url);
+            console.log('Factor:', factor, 'Duration:', duration);
+
+            try {
+                const res = await fetch(url);
+                console.log('Response status:', res.status);
+                if (!res.ok) {
+                    const errText = await res.text();
+                    console.error('Server error:', errText);
+                    alert('Failed to generate waveforms: ' + res.statusText + '\n' + errText);
+                    return;
+                }
+                const blob = await res.blob();
+                const objectUrl = URL.createObjectURL(blob);
+                console.log('Blob created:', blob.type, blob.size, 'bytes');
+
+                // Find the waveform container and update the image
+                const waveformContainer = document.querySelector('.panel:has(#btn-update-waveforms)');
+                if (!waveformContainer) {
+                    console.error('Could not find waveform panel');
+                    alert('Error: Waveform panel not found in DOM');
+                    return;
+                }
+
+                // Get or create a display image element
+                let displayImg = waveformContainer.querySelector('img[id="waveform-display"]');
+                if (!displayImg) {
+                    displayImg = document.createElement('img');
+                    displayImg.id = 'waveform-display';
+                    displayImg.style.width = '100%';
+                    displayImg.style.borderRadius = '4px';
+                    displayImg.style.marginTop = '12px';
+
+                    // Find the flex container and replace its content, or append after button
+                    const flexContainer = waveformContainer.querySelector('[style*="display:flex"]');
+                    if (flexContainer) {
+                        flexContainer.innerHTML = '';
+                        flexContainer.appendChild(displayImg);
+                    } else {
+                        waveformContainer.appendChild(displayImg);
+                    }
+                }
+
+                displayImg.src = objectUrl;
+                console.log('Waveform image displayed');
+            } catch (e) {
+                console.error('Error fetching waveforms:', e);
+                alert('Error fetching waveforms: ' + e.message);
+            }
         }
 
-        document.getElementById('reloadWaveforms').addEventListener('click', () => updateWaveforms(factorInput.value));
-
-        // Refresh waveform when original loads or pitched is applied
-        wsOrig.on('ready', function () { updateWaveforms(1.0); });
-        wsPit.on('ready', function () { updateWaveforms(factorInput.value); });
+        document.getElementById('btn-update-waveforms').addEventListener('click', updateWaveforms);
     </script>
 </body>
 

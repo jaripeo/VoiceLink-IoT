@@ -1,8 +1,45 @@
-# pitch_stft.py
+
 import argparse
 import numpy as np
-from scipy.signal import stft, istft
+from scipy.signal import stft, istft, hilbert
 from basic_io import read_wav_mono, write_wav_mono
+
+def hilbert_pitch_shift(x, pitch_factor):
+    """
+    Pitch shift using analytic signal (Hilbert transform),
+    with phase scaling anchored at the initial phase to better
+    preserve overall waveform shape.
+
+    pitch_factor > 1.0 -> pitch UP
+    pitch_factor < 1.0 -> pitch DOWN
+    """
+    # Remove DC to avoid weird envelope behavior
+    x_dc = x - np.mean(x)
+
+    # Analytic signal: x_a = a(t) * exp(j * phi(t))
+    analytic = hilbert(x_dc)
+    amp = np.abs(analytic)                      # envelope a(t)
+    phase = np.unwrap(np.angle(analytic))       # continuous phase phi(t)
+
+    # Anchor phase at the first sample so we don't globally flip shape
+    phi0 = phase[0]
+    phase_centered = phase - phi0
+    phase_new = phi0 + pitch_factor * phase_centered
+
+    # Reconstruct real signal with same envelope but modified phase
+    y = amp * np.cos(phase_new)
+
+    # Restore DC level approximately
+    y = y + np.mean(x)
+
+    # Normalize gently to avoid clipping (only if needed)
+    max_abs = np.max(np.abs(y)) + 1e-9
+    if max_abs > 1.0:
+        y = y / max_abs
+
+    return y.astype(np.float32)
+
+
 
 def stft_pitch_shift(x, sr, pitch_factor, n_fft=2048, hop_length=None):
     """
@@ -67,12 +104,12 @@ def stft_pitch_shift(x, sr, pitch_factor, n_fft=2048, hop_length=None):
 
     return x_recon.astype(np.float32)
 
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Simple STFT-based pitch shifter."
+        description="Dual pitch shifter: compare Hilbert vs STFT methods."
     )
     parser.add_argument("input", help="Input WAV file (mono 16-bit PCM)")
-    parser.add_argument("output", help="Output WAV file")
     parser.add_argument(
         "--factor",
         type=float,
@@ -83,7 +120,13 @@ def main():
         "--nfft",
         type=int,
         default=2048,
-        help="FFT size (window length), e.g. 1024 or 2048"
+        help="FFT size for STFT (default 2048)"
+    )
+    parser.add_argument(
+        "--method",
+        choices=["hilbert", "stft", "both"],
+        default="both",
+        help="Which method to use (default: both)"
     )
 
     args = parser.parse_args()
@@ -91,11 +134,18 @@ def main():
     x, sr = read_wav_mono(args.input)
     print(f"Loaded {args.input}, {len(x)} samples at {sr} Hz")
 
-    y = stft_pitch_shift(x, sr, pitch_factor=args.factor, n_fft=args.nfft)
+    if args.method in ("hilbert", "both"):
+        y_hilbert = hilbert_pitch_shift(x, args.factor)
+        out_hilbert = args.input.rsplit('.', 1)[0] + "_hilbert.wav"
+        write_wav_mono(out_hilbert, y_hilbert, sr)
+        print(f"Saved Hilbert pitch-shifted audio to {out_hilbert}")
 
-    write_wav_mono(args.output, y, sr)
-    print(f"Saved pitch-shifted audio to {args.output}")
+    if args.method in ("stft", "both"):
+        y_stft = stft_pitch_shift(x, sr, args.factor, n_fft=args.nfft)
+        out_stft = args.input.rsplit('.', 1)[0] + "_stft.wav"
+        write_wav_mono(out_stft, y_stft, sr)
+        print(f"Saved STFT pitch-shifted audio to {out_stft}")
+
 
 if __name__ == "__main__":
     main()
-

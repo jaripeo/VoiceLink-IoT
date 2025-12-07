@@ -1,7 +1,6 @@
 Flask>=2.0
 flask-cors
 paho-mqtt
-numpy==1.24.4
-scipy==1.12.0
+numpy
+scipy
 matplotlib
-wave	# not required, just for completeness

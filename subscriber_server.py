@@ -18,18 +18,22 @@ from flask_cors import CORS
 import paho.mqtt.client as mqtt
 
 from basic_io import read_wav_mono, write_wav_mono
-from pitch_stft import stft_pitch_shift
+from pitch_stft import stft_pitch_shift, hilbert_pitch_shift
 from plot_waveforms import plot_waveforms_to_buffer
 import numpy as np
 from scipy.signal import stft
 
 # Configuration
 # MQTT broker can be overridden via the environment variable `MQTT_BROKER`.
-BROKER = os.environ.get("MQTT_BROKER", "172.20.10.2")
+BROKER = os.environ.get("MQTT_BROKER", "172.20.10.4")
 TOPIC = "audio/sample"
 CONTROL_TOPIC = "audio/control"
 RECEIVED = "received.wav"
 PITCHED = "pitched.wav"
+PITCHED_HILBERT = "pitched_hilbert.wav"
+PITCHED_STFT = "pitched_stft.wav"
+# Expected remote recording length (seconds) returned to frontend so it can show a timer
+REMOTE_RECORD_SECONDS = int(os.environ.get("REMOTE_RECORD_SECONDS", "5"))
 
 app = Flask(__name__, static_folder="static", template_folder="static")
 CORS(app)
@@ -90,10 +94,11 @@ def audio_original():
 
 @app.route("/audio/pitched")
 def audio_pitched():
-    """Return a pitched WAV. Query args: factor (float), nfft (int, optional).
-    This generates the pitched audio on demand from the latest received file.
+    """Return a pitched WAV (uses currently selected algorithm via query arg 'algorithm').
+    Query args: factor (float), algorithm (hilbert|stft, default: stft), nfft (int, optional).
     """
     factor = float(request.args.get("factor", "1.0"))
+    algorithm = request.args.get("algorithm", "stft")  # hilbert or stft
     nfft = int(request.args.get("nfft", "1024"))
 
     if not Path(RECEIVED).exists():
@@ -102,10 +107,48 @@ def audio_pitched():
     # Read original, process, and write pitched file under lock
     with file_lock:
         x, sr = read_wav_mono(RECEIVED)
-        y = stft_pitch_shift(x, sr, pitch_factor=factor, n_fft=nfft)
-        write_wav_mono(PITCHED, y, sr)
+        if algorithm == "hilbert":
+            y = hilbert_pitch_shift(x, pitch_factor=factor)
+            output_file = PITCHED_HILBERT
+        else:  # stft
+            y = stft_pitch_shift(x, sr, pitch_factor=factor, n_fft=nfft)
+            output_file = PITCHED_STFT
+        write_wav_mono(output_file, y, sr)
 
-    return send_file(PITCHED, mimetype="audio/wav")
+    return send_file(output_file, mimetype="audio/wav")
+
+
+@app.route("/audio/pitched-hilbert")
+def audio_pitched_hilbert():
+    """Return Hilbert-transformed pitched WAV."""
+    factor = float(request.args.get("factor", "1.0"))
+
+    if not Path(RECEIVED).exists():
+        return ("No audio received yet", 404)
+
+    with file_lock:
+        x, sr = read_wav_mono(RECEIVED)
+        y = hilbert_pitch_shift(x, pitch_factor=factor)
+        write_wav_mono(PITCHED_HILBERT, y, sr)
+
+    return send_file(PITCHED_HILBERT, mimetype="audio/wav")
+
+
+@app.route("/audio/pitched-stft")
+def audio_pitched_stft():
+    """Return STFT-based pitched WAV."""
+    factor = float(request.args.get("factor", "1.0"))
+    nfft = int(request.args.get("nfft", "1024"))
+
+    if not Path(RECEIVED).exists():
+        return ("No audio received yet", 404)
+
+    with file_lock:
+        x, sr = read_wav_mono(RECEIVED)
+        y = stft_pitch_shift(x, sr, pitch_factor=factor, n_fft=nfft)
+        write_wav_mono(PITCHED_STFT, y, sr)
+
+    return send_file(PITCHED_STFT, mimetype="audio/wav")
 
 
 def compute_spectrogram_array(x: np.ndarray, sr: int, nperseg=1024, max_shape=(300, 300)):
@@ -161,25 +204,42 @@ def api_waveform():
 
 @app.route("/api/spectrogram")
 def api_spectrogram():
-    """Return a small spectrogram matrix as JSON: {f:[], t:[], S: [[...]]}
-    Query: which=original|pitched, factor (if pitched), nperseg
+    """Return spectrogram matrix as JSON: {f:[], t:[], S:[[...]]}.
+
+    Query params:
+      which: original | pitched | pitched-hilbert | pitched-stft (default: original)
+      factor: pitch factor for pitched variants (default: 1.0)
+      algorithm: hilbert | stft (optional; overrides when which=pitched)
+      nperseg, max_freq, max_time: spectrogram sizing
     """
     which = request.args.get("which", "original")
     nperseg = int(request.args.get("nperseg", "1024"))
     max_freq = int(request.args.get("max_freq", "300"))
     max_time = int(request.args.get("max_time", "300"))
 
+    if not Path(RECEIVED).exists():
+        return ("No audio received yet", 404)
+
+    x0, sr = read_wav_mono(RECEIVED)
+
     if which == "original":
-        if not Path(RECEIVED).exists():
-            return ("No audio received yet", 404)
-        x, sr = read_wav_mono(RECEIVED)
+        x = x0
     else:
-        # pitched
         factor = float(request.args.get("factor", "1.0"))
-        if not Path(RECEIVED).exists():
-            return ("No audio received yet", 404)
-        x0, sr = read_wav_mono(RECEIVED)
-        x = stft_pitch_shift(x0, sr, pitch_factor=factor, n_fft=nperseg)
+        algo = request.args.get("algorithm")
+        # normalize which -> algorithm choice
+        if which == "pitched-hilbert":
+            algo = "hilbert"
+        elif which == "pitched-stft":
+            algo = "stft"
+        else:
+            # generic "pitched" respects optional algorithm param, default stft
+            algo = algo or "stft"
+
+        if algo == "hilbert":
+            x = hilbert_pitch_shift(x0, pitch_factor=factor)
+        else:
+            x = stft_pitch_shift(x0, sr, pitch_factor=factor, n_fft=nperseg)
 
     f_small, t_small, S_small = compute_spectrogram_array(x, sr, nperseg=nperseg, max_shape=(max_freq, max_time))
 
@@ -190,35 +250,9 @@ def api_spectrogram():
     })
 
 
-@app.route("/visuals/waveforms.png")
-def waveform_png():
-    """Return a PNG image with original and pitched waveforms.
-
-    Query args:
-      factor: pitch factor for pitched waveform (float, optional)
-      duration: seconds to plot from start (float, optional)
-    """
-    if not Path(RECEIVED).exists():
-        return ("No audio received yet", 404)
-
-    factor = float(request.args.get("factor", "1.0"))
-    duration = float(request.args.get("duration", "0.1"))
-    nfft = int(request.args.get("nfft", "1024"))
-
-    # Ensure pitched file exists (generate under lock)
-    with file_lock:
-        x, sr = read_wav_mono(RECEIVED)
-        y = stft_pitch_shift(x, sr, pitch_factor=factor, n_fft=nfft)
-        write_wav_mono(PITCHED, y, sr)
-
-    # Use helper to create PNG buffer
-    try:
-        buf = plot_waveforms_to_buffer(RECEIVED, PITCHED, duration=duration)
-    except Exception as e:
-        return (f"Error generating waveform image: {e}", 500)
-
-    return send_file(buf, mimetype="image/png")
-
+# @app.route("/visuals/waveforms.png")
+# def waveform_png():
+#     """Return a PNG image with original and pitched waveforms.
 
 @app.route('/control/record', methods=['POST'])
 def control_record():
@@ -229,11 +263,87 @@ def control_record():
     if mqtt_client is None:
         return ("MQTT client not connected", 500)
     try:
+        # Publish control and return JSON with expected duration so frontend can show a timer
         mqtt_client.publish(CONTROL_TOPIC, 'record')
         print(f"Published control 'record' to topic '{CONTROL_TOPIC}' (broker={BROKER})")
-        return ("Requested remote recording", 200)
+        return jsonify({
+            "status": "requested",
+            "topic": CONTROL_TOPIC,
+            "broker": BROKER,
+            "expected_seconds": REMOTE_RECORD_SECONDS,
+        }), 200
     except Exception as e:
         return (f"Failed to publish control: {e}", 500)
+
+
+@app.route('/visuals/waveforms-all')
+def waveforms_all():
+    """Return PNG with all three waveforms: original, Hilbert pitched, STFT pitched.
+    
+    Query args:
+      factor: pitch factor (float, default 1.0)
+      duration: seconds to plot from start (float, default 0.1)
+    """
+    if not Path(RECEIVED).exists():
+        return ("No audio received yet", 404)
+
+    factor = float(request.args.get("factor", "1.0"))
+    duration = float(request.args.get("duration", "1.0"))
+    nfft = int(request.args.get("nfft", "1024"))
+
+    # Generate both pitched versions under lock
+    with file_lock:
+        x, sr = read_wav_mono(RECEIVED)
+        y_hilbert = hilbert_pitch_shift(x, pitch_factor=factor)
+        y_stft = stft_pitch_shift(x, sr, pitch_factor=factor, n_fft=nfft)
+        write_wav_mono(PITCHED_HILBERT, y_hilbert, sr)
+        write_wav_mono(PITCHED_STFT, y_stft, sr)
+
+    # Create comparison waveform plot (original + both pitched)
+    try:
+        import matplotlib.pyplot as plt
+        x_orig, sr_orig = read_wav_mono(RECEIVED)
+        x_hilbert, _ = read_wav_mono(PITCHED_HILBERT)
+        x_stft, _ = read_wav_mono(PITCHED_STFT)
+
+        t_orig = np.arange(len(x_orig)) / sr_orig
+        t_hilbert = np.arange(len(x_hilbert)) / sr_orig
+        t_stft = np.arange(len(x_stft)) / sr_orig
+
+        mask_orig = t_orig < duration
+        mask_hilbert = t_hilbert < duration
+        mask_stft = t_stft < duration
+
+        plt.figure(figsize=(15, 9))
+
+        plt.subplot(3, 1, 1)
+        plt.plot(t_orig[mask_orig], x_orig[mask_orig], color='#2563eb', linewidth=0.8)
+        plt.title('Original Waveform', fontsize=12, fontweight='bold')
+        plt.ylabel('Amplitude')
+        plt.grid(True, alpha=0.3)
+
+        plt.subplot(3, 1, 2)
+        plt.plot(t_hilbert[mask_hilbert], x_hilbert[mask_hilbert], color='#059669', linewidth=0.8)
+        plt.title('Pitched (Hilbert)', fontsize=12, fontweight='bold')
+        plt.ylabel('Amplitude')
+        plt.grid(True, alpha=0.3)
+
+        plt.subplot(3, 1, 3)
+        plt.plot(t_stft[mask_stft], x_stft[mask_stft], color='#fb923c', linewidth=0.8)
+        plt.title('Pitched (STFT)', fontsize=12, fontweight='bold')
+        plt.xlabel('Time (s)')
+        plt.ylabel('Amplitude')
+        plt.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=100, bbox_inches='tight')
+        plt.close()
+        buf.seek(0)
+        return send_file(buf, mimetype="image/png")
+    except Exception as e:
+        return (f"Error generating waveform image: {e}", 500)
 
 
 if __name__ == "__main__":
